@@ -6,7 +6,9 @@ The room can be found at [https://tryhackme.com/room/breakrsa](https://tryhackme
 
 This room talks about a weakness in RSA key generation, in which the chosen prime numbers (p and q) are not far apart. In such a case, Fermat's Factorization method can be used to factor the modulus (the huge number we talked about earlier), which is part of the public key. I think this paper titled "Fermat Factorization in the Wild" by Hanno Böck has a detailed explanation of it. It's linked at the bottom.
 
-## Computer stuff
+## Enumeration
+
+### Port Scan
 
 So now that the theory is out of the way, let us run a nmap SYN scan on the remote server.
 
@@ -18,7 +20,7 @@ nmap -sS -sV 10.10.142.96
 
 This shows some open services.
 
-<figure><img src="../.gitbook/assets/image (1).png" alt=""><figcaption><p>Running services!</p></figcaption></figure>
+<figure><img src=".gitbook/assets/image (1).png" alt=""><figcaption><p>Running services!</p></figcaption></figure>
 
 I also ran a UDP scan and that took a while (18 mins?) to complete, and I found one more service (DHCP client) there on port 68, but I think that does not count for the answer to the first question.
 
@@ -28,9 +30,11 @@ nmap -sU -sV 10.10.142.96
 ```
 {% endcode %}
 
+### Webserver directory enumeration
+
 We know there is a http server, so lets see what it has on it. The root directory on the server `http://10.10.142.96` has some text on it, but nothing really helpful.
 
-<figure><img src="../.gitbook/assets/image (3).png" alt=""><figcaption><p>Nothing interesting in the html of http://10.10.142.96/</p></figcaption></figure>
+<figure><img src=".gitbook/assets/image (3).png" alt=""><figcaption><p>Nothing interesting in the html of http://10.10.142.96/</p></figcaption></figure>
 
 Let us check if there are any other common directories that this webserver is exposing.
 
@@ -40,25 +44,27 @@ ffuf -u http://10.10.143.96/FUZZ -w /usr/share/seclists/Discovery/Web-Content/ds
 ```
 {% endcode %}
 
-
-
 What that bit of code does is make URLs by replacing the word "FUZZ" with the words found in the list, and then make HTTP requests to those URLs. Only the URLs that respond with a Status Codes 200, 204, 301, 302, 307, 401 and 403 are logged, and I save these ones to a file.&#x20;
 
-<figure><img src="../.gitbook/assets/image (2).png" alt=""><figcaption><p>Replace &#x3C;hidden_dir> with whatever is in the blurred part.</p></figcaption></figure>
+<figure><img src=".gitbook/assets/image (2).png" alt=""><figcaption><p>Replace &#x3C;hidden_dir> with whatever is in the blurred part.</p></figcaption></figure>
 
 So this gives us a hidden directory, which i wont name, but lets call it _hidden\_dir_. So we browse to `http://10.10.143.96/<hidden_dir>` . It has two files, a text file called _log.txt_, and a RSA public key file called _id\_rsa.pub_.
 
-<figure><img src="../.gitbook/assets/image (4).png" alt=""><figcaption><p>Content of <em>log.txt</em></p></figcaption></figure>
+<figure><img src=".gitbook/assets/image (4).png" alt=""><figcaption><p>Content of <em>log.txt</em></p></figcaption></figure>
 
 The file explains the SSH concept we discussed before. It also tells us SSH root login is enabled on the server. This means we can login directly as root when connecting to the server using ssh later.
 
+## Cryptography
+
+### Making the key usable
+
 Next, we try to read the public key file, _id\_rsa.pub_ using `openssl`.
 
-<figure><img src="../.gitbook/assets/image (5).png" alt=""><figcaption><p>That did not work :/</p></figcaption></figure>
+<figure><img src=".gitbook/assets/image (5).png" alt=""><figcaption><p>That did not work :/</p></figcaption></figure>
 
 It seems openssl can't load it? On viewing the contents of the file using `cat` it starts with a `ssh-rsa` text, followed by some base64 characters. So far, the keys I have run into in the [introtocrypto ](https://tryhackme.com/room/cryptographyintro)TryHackMe room had this header: `----BEGIN PRIVATE KEY----` and had a _.pem_ extension. This one is different.&#x20;
 
-<figure><img src="../.gitbook/assets/3ee30a2b-8655-4eaa-b744-1829ae8499bb_text.gif" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/3ee30a2b-8655-4eaa-b744-1829ae8499bb_text.gif" alt=""><figcaption></figcaption></figure>
 
 Disclaimer: We are now entering trial and error territory. This is probably normal? I think.
 
@@ -74,7 +80,7 @@ cat id_rsa.pub | cut -f 2 -d " " | base64 -d
 
 The `cut` command leaves only the base64 portion of the key, and we try to decode it. Yeah, this won't do.
 
-<figure><img src="../.gitbook/assets/image (6).png" alt=""><figcaption><p>Complete gibberish</p></figcaption></figure>
+<figure><img src=".gitbook/assets/image (6).png" alt=""><figcaption><p>Complete gibberish</p></figcaption></figure>
 
 *   Find a way to view a ssh-rsa key: With some googling I found that `ssh-keygen` can convert this _ssh-rsa_ key into a _pem_ key. We are familiar with that one! Amazing.&#x20;
 
@@ -110,6 +116,8 @@ And found this. [https://crypto.stackexchange.com/questions/18031/how-to-find-mo
 
 And realised this was getting very complicated very fast.
 
+### Key manipulation using Python pycryptodome to obtain the modulus
+
 I also remembered that the question page says to use _pycryptodome_ to do the RSA calculcations, so lets try that approach. We can always come back to this one.
 
 Time to bring the crAzY python skillz out.
@@ -133,6 +141,8 @@ we didn't even need to convert it to pem before
 
 This is a long number. Since this the answer to one of the questions, I intentionally removed the last 10 digits.
 
+### Factoring the modulus
+
 So now that we have _n_, we need to factor it. We could write code to do that, code that would be able to handle large numbers. OR. We could use a list of all the numbers and their known prime factors. Yep, that exists. Enter [factordb.com](http://factordb.com/)
 
 So running our modulus through factordb, we get the prime factors as follows:
@@ -146,15 +156,17 @@ So running our modulus through factordb, we get the prime factors as follows:
 
 The difference of these numbers is indeed very small.&#x20;
 
+### Calculating and Dumping the private key
+
 Now to calculate the private key, d.
 
-d = modinv(65537, lcm((p-1),(q-1)))
+d = modinv(e, lcm((p-1),(q-1))), where e = 65537 (given)
 
 We can do this in python 3.8+ with the following expression:
 
 {% code overflow="wrap" lineNumbers="true" %}
 ```python
->>> math.pow(p*q, -1, math.lcm(p-1,q-1))
+>>> math.pow(65537, -1, math.lcm(p-1,q-1))
 ```
 {% endcode %}
 
@@ -163,7 +175,7 @@ So, now that we have d, we should be able to craft the private key, and dump it 
 {% code overflow="wrap" lineNumbers="true" %}
 ```python
 >>> from math import lcm
->>> priv_key = RSA.construct(tuple([p*q,65537,pow(p*q, -1, lcm(p-1,q-1),p,q]), consistency_check=True)
+>>> priv_key = RSA.construct(tuple([p*q,65537,pow(65537, -1, lcm(p-1,q-1),p,q]), consistency_check=True)
 >>> data = priv_key.export_key(format='OpenSSH')
 >>> f = open('private_key', 'wb')
 >>> f.write(data)
@@ -181,7 +193,7 @@ ssh -i private_key root@10.10.142.96
 ```
 {% endcode %}
 
-<figure><img src="../.gitbook/assets/image (7).png" alt=""><figcaption><p>UNPROTECTED FILE???</p></figcaption></figure>
+<figure><img src=".gitbook/assets/image (7).png" alt=""><figcaption><p>UNPROTECTED FILE???</p></figcaption></figure>
 
 A couple of things I learnt here after spending \*only\* a couple hours:
 
@@ -189,15 +201,19 @@ A couple of things I learnt here after spending \*only\* a couple hours:
 * \*deep breaths\* This part was very annoying but there are [way too many types of RSA keys](https://superuser.com/questions/1515261/how-to-quickly-identify-ssh-private-key-file-formats).&#x20;
 * Exporting a private RSA key in OpenSSH format will export the corresponding public key instead. Found this out by comparing the public key from before and private key I generated and finding out they are the same. Moreover, the private key from a new keypair generated using `ssh-keygen` is way larger than whatever private key we exported here.
 
+### So many keys
+
 So I had to do some more trial and error with the other export key types that PyCryptodome offers (PEM and DER). I exported both of them as _private\_key.pem_ and _private\_key.der_ and changed their permissions to 600.
 
 Then I tried using them to ssh into the server. The PEM key worked, the DER one did not.
 
+### Fin.
+
 The flag was there upon logging in.
 
-<figure><img src="../.gitbook/assets/image (8).png" alt=""><figcaption><p>Done!</p></figcaption></figure>
+<figure><img src=".gitbook/assets/image (8).png" alt=""><figcaption><p>Done!</p></figcaption></figure>
 
-## Notes/Links:
+## Notes/Links
 
 1. Fermat Factorization in the Wild: [https://eprint.iacr.org/2023/026.pdf](https://eprint.iacr.org/2023/026.pdf).
 2. The wordlist used with ffuf is from Daniel Miessler's Seclist Repository, [https://github.com/danielmiessler/SecLists](https://github.com/danielmiessler/SecLists).
