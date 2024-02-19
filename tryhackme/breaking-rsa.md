@@ -152,12 +152,15 @@ d = modinv(65537, lcm((p-1),(q-1)))
 
 We can do this in python 3.8+ with the following expression:
 
+{% code overflow="wrap" lineNumbers="true" %}
 ```python
 >>> math.pow(p*q, -1, math.lcm(p-1,q-1))
 ```
+{% endcode %}
 
 So, now that we have d, we should be able to craft the private key, and dump it to the filesystem, and use it to ssh into the root user's account on the server.
 
+{% code overflow="wrap" lineNumbers="true" %}
 ```python
 >>> from math import lcm
 >>> priv_key = RSA.construct(tuple([p*q,65537,pow(p*q, -1, lcm(p-1,q-1),p,q]), consistency_check=True)
@@ -166,14 +169,17 @@ So, now that we have d, we should be able to craft the private key, and dump it 
 >>> f.write(data)
 >>> f.close()
 ```
+{% endcode %}
 
 We should have a file by the name of _private\_key_ in the directory that we opened the python shell in.
 
 Let's trying ssh'ing into 10.10.142.96.
 
+{% code overflow="wrap" lineNumbers="true" %}
 ```bash
 ssh -i private_key root@10.10.142.96
 ```
+{% endcode %}
 
 <figure><img src="../.gitbook/assets/image (7).png" alt=""><figcaption><p>UNPROTECTED FILE???</p></figcaption></figure>
 
